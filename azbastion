@@ -123,7 +123,7 @@ if [[ $tenant == 1 ]] ; then
 				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.62.4 --auth-type password --username $azuser ;;
 			2)
 				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.62.25 --auth-type password --username $azuser ;;
+				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.62.5 --auth-type password --username $azuser ;;
 			3)
 				clear
 				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.62.36 --auth-type password --username $azuser ;;
@@ -230,18 +230,14 @@ if [[ $tenant == 3 ]] ; then
 
 	if [[ $environment == 1 ]] ; then
 		server="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Server:" 0 0 10 \
-			1 "UNWMEUSSENBFWD01 - BUY FROM WOMEN" \
-			2 "UNWMEUSELPRDWEB01 - TRAINING CENTRE" \
-			3 "UNWMEUSLMSP01 - WEPS")"
+			1 "UNWMEUSELPRDWEB01 - TRAINING CENTRE" \
+			2 "UNWMEUSLMSP01 - WEPS")"
 
 		case $server in
 			1)
 				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.2.2.5 --auth-type password --username $azuser ;;
-			2)
-				clear
 				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.135.164 --auth-type password --username $azuser ;;
-			3) 
+			2) 
 				clear
 				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.0.0.4 --auth-type password --username $azuser ;;
 		esac
