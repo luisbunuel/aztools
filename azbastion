@@ -3,7 +3,7 @@
 # Open a tunnel with a server through Azure Bastion
 # https://github.com/luisbunuel/aztools
 
-VERSION="1.1"
+VERSION="1.2"
 azuser="admbunuel"
 
 if [ -z "$azuser" ]; then
@@ -20,6 +20,8 @@ UNDPBIO_tenant="iccundp.onmicrosoft.com"
 UNDPBIO_config_dir="$HOME/.azure_UNDPBIO"
 UNWOMEN_tenant="unwomen.onmicrosoft.com"
 UNWOMEN_config_dir="$HOME/.azure_WOMEN"
+UNCTAD_tenant="unicc.onmicrosoft.com"  # for UNCTAD we use the UNICC bastion
+UNCTAD_config_dir="$HOME/.azure_UNICC"
 
 export AZURE_CONFIG_DIR=$IIIM_config_dir
 if az account get-access-token &>/dev/null; then
@@ -49,6 +51,13 @@ else
 	undpbio="UNDPBIO"
 fi
 
+export AZURE_CONFIG_DIR=$UNCTAD_config_dir
+if az account get-access-token &>/dev/null; then
+    unctad="\Zu\Z1UNCTAD"
+else
+    unctad="UNCTAD"
+fi
+
 check_ssh() {
 	az extension list | grep name | grep ssh &>/dev/null
 	if [ $? -ne 0 ]; then
@@ -60,7 +69,8 @@ tenant="$(dialog --colors --backtitle "Azure Bastion tunnel connection" --title 
 	1 "$iiim" \
 	2 "$undp" \
 	3 "$unwomen" \
-	4 "$undpbio" )"
+	4 "$undpbio" \
+	5 "$unctad")"
 
 case $tenant in
 	1)
@@ -95,6 +105,14 @@ case $tenant in
 		fi
 		az account set --subscription 'UNDP - UN Biodiversity Lab Hosting - ELSA'
 		check_ssh;;
+	5)
+        export AZURE_CONFIG_DIR=$UNCTAD_config_dir
+        az config set extension.use_dynamic_install=yes_without_prompt &>/dev/null
+        if ! az account get-access-token &>/dev/null; then
+            az login --tenant $UNCTAD_tenant &>> /tmp/azbastion_$USER.log
+        fi
+        az account set --subscription 'UNICC OPDA - Shared Bastion'
+        check_ssh;;
 esac
 
 ################## IIIM MENU ##################
@@ -278,5 +296,46 @@ if [[ $tenant == 4 ]] ; then
 				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.2.68 --auth-type password --username $azuser ;;
 		esac
 	fi
+fi
+###############################################
+
+################## UNCTAD## ###################
+if [[ $tenant == 5 ]] ; then
+    bastion="opda-shared-bastion"
+    rg="RG-opda-shared-bastion"
+
+    environment="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Environment:" 0 0 5 \
+        1 "Production" \
+        2 "Test")"
+
+    if [[ $environment == 1 ]] ; then
+        server="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Server:" 0 0 10 \
+            1 "dmzprodunctadorg-web1" \
+            2 "dmzprodunctadorg-web2" \
+            2 "dmzprodunctadorg-solr1")"
+
+        case $server in
+            1)
+                clear
+                az network bastion ssh -n $bastion -g $rg --target-ip-address 10.0.1.4 --auth-type password --username $azuser ;;
+            2)
+                clear
+                az network bastion ssh -n $bastion -g $rg --target-ip-address 10.0.1.7 --auth-type password --username $azuser ;;
+            3)
+                clear
+                az network bastion ssh -n $bastion -g $rg --target-ip-address 10.0.1.5 --auth-type password --username $azuser ;;
+        esac
+    fi
+
+    if [[ $environment == 2 ]] ; then
+        server="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Server:" 0 0 10 \
+            1 "dmzuatunctadorg-web1")"
+
+        case $server in
+            1)
+                clear
+                az network bastion ssh -n $bastion -g $rg --target-ip-address 10.0.0.4 --auth-type password --username $azuser ;;
+        esac
+    fi
 fi
 ###############################################
