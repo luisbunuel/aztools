@@ -264,7 +264,8 @@ if [[ $tenant == 3 ]] ; then
 	if [[ $environment == 2 ]] ; then
 		server="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Server:" 0 0 10 \
 			1 "UNWMEUSDEVBFWD01 - BUY FROM WOMEN" \
-			2 "UNWMEUSLMSD01 - WEPS")"
+			2 "UNWMEUSLMSD01 - WEPS" \
+            3 "UNWMEUSELDEVWEB01 - TRAINING CENTRE")"
 
 		case $server in
 			1)
@@ -273,6 +274,9 @@ if [[ $tenant == 3 ]] ; then
 			2)
 				clear
 				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.0.1.4 --auth-type password --username $azuser ;;
+            3)
+                clear
+                az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.135.148 --auth-type password --username $azuser ;;
 		esac
 	fi
 fi
