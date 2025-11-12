@@ -133,7 +133,8 @@ if [[ $tenant == 1 ]] ; then
 			5 "iiim-dw-p-compsrv-01" \
 			6 "iiim-dw-p-compsrv-02" \
 			7 "iiim-dw-p-compsrv-03" \
-			8 "iiim-dw-p-monsrv-01")"
+			8 "iiim-dw-p-monsrv-01" \
+            9 "iiim-dw-p-haproxy")"
 
 		case $server in
 			1)
@@ -160,6 +161,9 @@ if [[ $tenant == 1 ]] ; then
 			8)
 				clear
 				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.62.38 --auth-type password --username $azuser ;;
+            9)
+                clear
+                az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.62.10 --auth-type password --username $azuser ;;
 		esac
 	fi
 
@@ -172,7 +176,7 @@ if [[ $tenant == 1 ]] ; then
 		5 "iiim-dw-t-compsrv-01" \
 		6 "iiim-dw-t-compsrv-02" \
 		7 "iiim-dw-t-compsrv-03" \
-        	8 "iiim-dw-t-haproxy")"
+        8 "iiim-dw-t-haproxy")"
 
 		case $server in
 			1)
