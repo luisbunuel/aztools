@@ -108,7 +108,7 @@ esac
 case $environment in
 	prod)
 		env="p"
-		servers=($org-dw-$env-appsrv-01 $org-dw-$env-appsrv-02 $org-dw-$env-compsrv-01 $org-dw-$env-compsrv-02 $org-dw-$env-compsrv-03 $org-dw-$env-intsrv-01 $org-dw-$env-intsrv-02)
+		servers=($org-dw-$env-appsrv-01 $org-dw-$env-appsrv-02 $org-dw-$env-compsrv-01 $org-dw-$env-compsrv-02 $org-dw-$env-compsrv-03 $org-dw-$env-intsrv-01 $org-dw-$env-intsrv-02 $org-dw-$env-haproxy) 
 		servers=("${servers[@]}" $org-dw-p-monsrv-01)
 		;;
 	test)
