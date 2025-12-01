@@ -152,7 +152,7 @@ case $action in
 
 		for server in ${servers[@]}
 		do
-			az monitor alert-processing-rule create --enabled true --name "$server - Server Maintenance Mode" --description "$description" --resource-group $resource_group --scope $scope --filter-alert-context Contains $server --rule-type $rule --schedule-start-datetime "$start_date" --schedule-end-datetime "$finish_date" &>/dev/null
+			az monitor alert-processing-rule create --enabled true --name "$server - Server Maintenance Mode" --description "$description" --resource-group $resource_group --scope $scope --filter-alert-context Contains $server --filter-monitor-condition Equals Fired --rule-type $rule --schedule-start-datetime "$start_date" --schedule-end-datetime "$finish_date" &>/dev/null
 			if [ $? == 0 ]; then
 				echo -e "$server: ${GREEN}Success${NC}"
 			else
