@@ -103,7 +103,7 @@ case $tenant in
 		if ! az account get-access-token &>/dev/null; then
 			az login --tenant $UNDPBIO_tenant &>> /tmp/azbastion_$USER.log
 		fi
-		az account set --subscription 'UNDP - UN Biodiversity Lab Hosting - ELSA'
+		az account set --subscription 'UNDP - UN Biodiversity Lab Hosting - WP site'
 		check_ssh;;
 	5)
         export AZURE_CONFIG_DIR=$UNCTAD_config_dir
@@ -288,8 +288,8 @@ fi
 
 ################## UNDP BIO ###################
 if [[ $tenant == 4 ]] ; then
-	bastion="undp-elsa-bastion"
-	rg="RG-undp-elsa-prod"
+	bastion="undp-biolab-bastion"
+	rg="undp-prd-biolab-website"
 
 	environment="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Environment:" 0 0 5 \
 		1 "Production")"
