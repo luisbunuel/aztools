@@ -2,8 +2,9 @@
 #
 # Open a tunnel with a server through Azure Bastion
 # https://github.com/luisbunuel/aztools
+# Refactored to use fzf instead of dialog
 
-VERSION="1.2"
+VERSION="2.0 (fzf)"
 azuser="admbunuel"
 
 if [ -z "$azuser" ]; then
@@ -11,343 +12,181 @@ if [ -z "$azuser" ]; then
 	exit 1 
 fi
 
-# LIST OF AZURE TENANTS
+# ==============================================================================
+# CONFIGURATION DEFINITION
+# ==============================================================================
+
+# Tenant Definitions
 IIIM_tenant="iiimprod.onmicrosoft.com"
 IIIM_config_dir="$HOME/.azure_IIIM"
 UNDP_tenant="iccundp.onmicrosoft.com"
 UNDP_config_dir="$HOME/.azure_UNDP"
-UNDPBIO_tenant="iccundp.onmicrosoft.com"
-UNDPBIO_config_dir="$HOME/.azure_UNDPBIO"
 UNWOMEN_tenant="unwomen.onmicrosoft.com"
 UNWOMEN_config_dir="$HOME/.azure_WOMEN"
+UNDPBIO_tenant="iccundp.onmicrosoft.com"
+UNDPBIO_config_dir="$HOME/.azure_UNDPBIO"
 UNCTAD_tenant="unicc.onmicrosoft.com"  # for UNCTAD we use the UNICC bastion
 UNCTAD_config_dir="$HOME/.azure_UNICC"
 
-export AZURE_CONFIG_DIR=$IIIM_config_dir
-if az account get-access-token &>/dev/null; then
-	iiim="\Zu\Z1IIIM"
-else
-	iiim="IIIM"
-fi
+# Map of Tenant Names to their Configurations and Subscriptions
+declare -A TENANT_MAP=(
+    ["IIIM"]="$IIIM_config_dir:$IIIM_tenant:IIIM - Connectivity Hub"
+    ["UNDP"]="$UNDP_config_dir:$UNDP_tenant:ICCUNDP - Production"
+    ["UNWOMEN"]="$UNWOMEN_config_dir:$UNWOMEN_tenant:UNICC"
+    ["UNDPBIO"]="$UNDPBIO_config_dir:$UNDPBIO_tenant:UNDP - UN Biodiversity Lab Hosting - WP site"
+    ["UNCTAD"]="$UNCTAD_config_dir:$UNCTAD_tenant:UNICC OPDA - Shared Bastion"
+)
 
-export AZURE_CONFIG_DIR=$UNDP_config_dir
-if az account get-access-token &>/dev/null; then
-	undp="\Zu\Z1UNDP"
-else
-	undp="UNDP"
-fi
+# Server/Bastion Definitions (Tenant:Environment:Bastion:RG:Servers)
+# Servers format: "SERVER_NAME:IP_ADDRESS|SERVER_NAME:IP_ADDRESS..."
+declare -A AZURE_RESOURCES=(
+    # IIIM
+    ["IIIM:Production"]="iiim-conn-dw-bastion:RG-IIIM-ConnHub-Datawalk:iiim-dw-p-appsrv-01:10.88.62.4|iiim-dw-p-appsrv-02:10.88.62.5|iiim-dw-p-intsrv-01:10.88.62.36|iiim-dw-p-intsrv-02:10.88.62.37|iiim-dw-p-compsrv-01:10.88.62.68|iiim-dw-p-compsrv-02:10.88.62.69|iiim-dw-p-compsrv-03:10.88.62.70|iiim-dw-p-monsrv-01:10.88.62.38|iiim-dw-p-haproxy:10.88.62.10"
+    ["IIIM:Test"]="iiim-conn-dw-bastion:RG-IIIM-ConnHub-Datawalk:iiim-dw-t-appsrv-01:10.88.61.4|iiim-dw-t-appsrv-02:10.88.61.5|iiim-dw-t-intsrv-01:10.88.61.36|iiim-dw-t-intsrv-02:10.88.61.37|iiim-dw-t-compsrv-01:10.88.61.68|iiim-dw-t-compsrv-02:10.88.61.69|iiim-dw-t-compsrv-03:10.88.61.70|iiim-dw-t-haproxy:10.88.61.10"
 
-export AZURE_CONFIG_DIR=$UNWOMEN_config_dir
-if az account get-access-token &>/dev/null; then
-	unwomen="\Zu\Z1UNWOMEN"
-else
-	unwomen="UNWOMEN"
-fi
+    # UNDP
+    ["UNDP:Production"]="UNDP-PRD-AZRWEU-BASTION-VNET-01:UNDP-PRD-AZRWEU-HUB:DPLPRODCF02:10.88.1.46|DPSPRODCF02:10.88.1.47"
+    ["UNDP:Test"]="UNDP-PRD-AZRWEU-BASTION-VNET-01:UNDP-PRD-AZRWEU-HUB:DPLNONPRODCF02:10.88.1.42"
 
-export AZURE_CONFIG_DIR=$UNDPBIO_config_dir
-if az account get-access-token &>/dev/null; then
-	undpbio="\Zu\Z1UNDPBIO"
-else
-	undpbio="UNDPBIO"
-fi
+    # UNWOMEN
+    ["UNWOMEN:Production"]="UNWOMEN-EAST-US-bastion:UNWOMEN-EAST-US-Migrated:UNWMEUSELPRDWEB01 - TRAINING CENTRE:10.88.135.164|UNWMEUSELPRDWEB02 - NEW TRAINING CENTRE:10.88.135.165|UNWMEUSLMSP01 - WEPS:10.0.0.4"
+    ["UNWOMEN:Test"]="UNWOMEN-EAST-US-bastion:UNWOMEN-EAST-US-Migrated:UNWMEUSELDEVWEB01 - TRAINING CENTRE:10.88.135.148|UNWMEUSLMSD01 - WEPS:10.0.1.4"
 
-export AZURE_CONFIG_DIR=$UNCTAD_config_dir
-if az account get-access-token &>/dev/null; then
-    unctad="\Zu\Z1UNCTAD"
-else
-    unctad="UNCTAD"
-fi
+    # UNDPBIO
+    ["UNDPBIO:Production"]="undp-biolab-bastion:undp-prd-biolab-website:undpbio:10.88.2.68"
+
+    # UNCTAD
+    ["UNCTAD:Production"]="opda-shared-bastion:RG-opda-shared-bastion:dmzprodunctadorg-web1:10.0.1.4|dmzprodunctadorg-web2:10.0.1.7|dmzprodunctadorg-solr1:10.0.1.5"
+    ["UNCTAD:Test"]="opda-shared-bastion:RG-opda-shared-bastion:dmzuatunctadorg-web1:10.0.0.4"
+)
+
+# ==============================================================================
+# FUNCTIONS
+# ==============================================================================
 
 check_ssh() {
-	az extension list | grep name | grep ssh &>/dev/null
-	if [ $? -ne 0 ]; then
+	# Check and install the Azure CLI SSH extension if missing
+	if ! az extension show -n ssh &>/dev/null; then
+		echo "Installing Azure SSH extension..."
 		az extension add -n ssh &>/dev/null
 	fi
 }
 
-tenant="$(dialog --colors --backtitle "Azure Bastion tunnel connection" --title "\Zb\Z0AZBASTION v.$VERSION" --stdout --default-item 1 --menu "Select Tenant" 0 0 6 \
-	1 "$iiim" \
-	2 "$undp" \
-	3 "$unwomen" \
-	4 "$undpbio" \
-	5 "$unctad")"
+check_fzf() {
+	# Verify fzf is installed before relying on it for every menu
+	if ! command -v fzf &>/dev/null; then
+		echo "Error: 'fzf' is not installed. Install it (e.g. 'sudo apt install fzf') and try again."
+		exit 1
+	fi
+}
 
-case $tenant in
-	1)
-		export AZURE_CONFIG_DIR=$IIIM_config_dir
-		az config set extension.use_dynamic_install=yes_without_prompt &>/dev/null
-		if ! az account get-access-token &>/dev/null; then
-			az login --tenant $IIIM_tenant &>> /tmp/azbastion_$USER.log
-		fi
-		az account set --subscription 'IIIM - Connectivity Hub'
-		check_ssh;;
-	2)
-		export AZURE_CONFIG_DIR=$UNDP_config_dir
-		az config set extension.use_dynamic_install=yes_without_prompt &>/dev/null
-		if ! az account get-access-token &>/dev/null; then
-			az login --tenant $UNDP_tenant &>> /tmp/azbastion_$USER.log
-		fi
-		az account set --subscription 'ICCUNDP - Production'
-		check_ssh;;
-	3) 
-		export AZURE_CONFIG_DIR=$UNWOMEN_config_dir
-		az config set extension.use_dynamic_install=yes_without_prompt &>/dev/null
-		if ! az account get-access-token &>/dev/null; then
-			az login --tenant $UNWOMEN_tenant &>> /tmp/azbastion_$USER.log  
-		fi
-		az account set --subscription 'UNICC'
-		check_ssh;;
-	4)
-		export AZURE_CONFIG_DIR=$UNDPBIO_config_dir
-		az config set extension.use_dynamic_install=yes_without_prompt &>/dev/null
-		if ! az account get-access-token &>/dev/null; then
-			az login --tenant $UNDPBIO_tenant &>> /tmp/azbastion_$USER.log
-		fi
-		az account set --subscription 'UNDP - UN Biodiversity Lab Hosting - WP site'
-		check_ssh;;
-	5)
-        export AZURE_CONFIG_DIR=$UNCTAD_config_dir
-        az config set extension.use_dynamic_install=yes_without_prompt &>/dev/null
-        if ! az account get-access-token &>/dev/null; then
-            az login --tenant $UNCTAD_tenant &>> /tmp/azbastion_$USER.log
+generate_tenant_fzf_list() {
+    for tenant_name in "${!TENANT_MAP[@]}"; do
+        IFS=':' read -r config_dir tenant_id subscription <<< "${TENANT_MAP[$tenant_name]}"
+
+        AZURE_CONFIG_DIR="$config_dir" az account get-access-token &>/dev/null
+        if [ $? -eq 0 ]; then
+            echo -e "\e[32m✔ $tenant_name\e[0m"
+        else
+            echo -e "\e[31m✖ $tenant_name\e[0m"
         fi
-        az account set --subscription 'UNICC OPDA - Shared Bastion'
-        check_ssh;;
-esac
+    done
+}
 
-################## IIIM MENU ##################
-if [[ $tenant == 1 ]] ; then
-	bastion="iiim-conn-dw-bastion"
-	rg="RG-IIIM-ConnHub-Datawalk"
+# ==============================================================================
+# MAIN SCRIPT EXECUTION
+# ==============================================================================
 
-	environment="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Environment:" 0 0 5 \
-		1 "Production" \
-		2 "Test")"
+echo "AZBASTION v.$VERSION"
+echo "--------------------------"
 
-	if [[ $environment == 1 ]] ; then
-		server="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Server:" 0 0 10 \
-			1 "iiim-dw-p-appsrv-01" \
-			2 "iiim-dw-p-appsrv-02" \
-			3 "iiim-dw-p-intsrv-01" \
-			4 "iiim-dw-p-intsrv-02" \
-			5 "iiim-dw-p-compsrv-01" \
-			6 "iiim-dw-p-compsrv-02" \
-			7 "iiim-dw-p-compsrv-03" \
-			8 "iiim-dw-p-monsrv-01" \
-            9 "iiim-dw-p-haproxy")"
+check_fzf
 
-		case $server in
-			1)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.62.4 --auth-type password --username $azuser ;;
-			2)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.62.5 --auth-type password --username $azuser ;;
-			3)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.62.36 --auth-type password --username $azuser ;;
-			4)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.62.37 --auth-type password --username $azuser ;;
-			5)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.62.68 --auth-type password --username $azuser ;;
-			6)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.62.69 --auth-type password --username $azuser ;;
-			7)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.62.70 --auth-type password --username $azuser ;;
-			8)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.62.38 --auth-type password --username $azuser ;;
-            9)
-                clear
-                az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.62.10 --auth-type password --username $azuser ;;
-		esac
-	fi
+# 1. Select Tenant using FZF
+selected_line=$(generate_tenant_fzf_list | fzf --ansi --header "Select Tenant (Green = Logged In):" --prompt="Tenant > ")
 
-	if [[ $environment == 2 ]] ; then
-		server="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Server:" 0 0 10 \
-		1 "iiim-dw-t-appsrv-01" \
-		2 "iiim-dw-t-appsrv-02" \
-		3 "iiim-dw-t-intsrv-01" \
-		4 "iiim-dw-t-intsrv-02" \
-		5 "iiim-dw-t-compsrv-01" \
-		6 "iiim-dw-t-compsrv-02" \
-		7 "iiim-dw-t-compsrv-03" \
-        8 "iiim-dw-t-haproxy")"
-
-		case $server in
-			1)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.61.4 --auth-type password --username $azuser ;;
-			2)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.61.5 --auth-type password --username $azuser ;;
-			3)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.61.36 --auth-type password --username $azuser ;;
-			4)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.61.37 --auth-type password --username $azuser ;;
-			5)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.61.68 --auth-type password --username $azuser ;;
-			6)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.61.69 --auth-type password --username $azuser ;;
-			7)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.61.70 --auth-type password --username $azuser ;;
-            		8)
-                		clear
-                		az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.61.10 --auth-type password --username $azuser ;;
-		esac
-	fi
+if [ -z "$selected_line" ]; then
+    echo "Tenant selection cancelled."
+    exit 0
 fi
-###############################################
 
-################## UNDP MENU ##################
-if [[ $tenant == 2 ]] ; then
-	bastion="UNDP-PRD-AZRWEU-BASTION-VNET-01"
-	rg="UNDP-PRD-AZRWEU-HUB"
+# Extract the tenant name from the selected line (e.g., "✔      IIIM")
+tenant_name_raw=$(echo "$selected_line" | awk '{print $NF}')
 
-	environment="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Environment:" 0 0 5 \
-		1 "Production" \
-		2 "Test")"
-
-	if [[ $environment == 1 ]] ; then
-		server="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Server:" 0 0 10 \
-			1 "DPLPRODCF02" \
-			2 "DPSPRODCF02")"
-
-		case $server in
-			1)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.1.46 --auth-type password --username $azuser ;;
-			2)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.1.47 --auth-type password --username $azuser ;;
-		esac
-	fi
-
-	if [[ $environment == 2 ]] ; then
-		server="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Server:" 0 0 10 \
-			1 "DPLNONPRODCF02")"
-
-		case $server in
-			1)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.1.42 --auth-type password --username $azuser ;;
-		esac
-	fi
+if [ -z "${TENANT_MAP[$tenant_name_raw]+x}" ]; then
+    echo "Error: unknown tenant '$tenant_name_raw'."
+    exit 1
 fi
-###############################################
 
-################## UNWOMEN ####################
-if [[ $tenant == 3 ]] ; then
-	bastion="UNWOMEN-EAST-US-bastion"
-	rg="UNWOMEN-EAST-US-Migrated"
+# Retrieve configuration
+IFS=':' read -r AZURE_CONFIG_DIR TENANT_ID SUBSCRIPTION <<< "${TENANT_MAP[$tenant_name_raw]}"
 
-	environment="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Environment:" 0 0 5 \
-		1 "Production" \
-		2 "Test")"
+# Configure Azure CLI
+export AZURE_CONFIG_DIR
+az config set extension.use_dynamic_install=yes_without_prompt &>/dev/null
 
-	if [[ $environment == 1 ]] ; then
-		server="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Server:" 0 0 10 \
-			1 "UNWMEUSELPRDWEB01 - TRAINING CENTRE" \
-            2 "UNWMEUSELPRDWEB02 - NEW TRAINING CENTRE" \
-			3 "UNWMEUSLMSP01 - WEPS")"
-
-		case $server in
-			1)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.135.164 --auth-type password --username $azuser ;;
-            2)
-                clear
-                az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.135.165 --auth-type password --username $azuser ;;
-			3) 
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.0.0.4 --auth-type password --username $azuser ;;
-		esac
-	fi
-
-	if [[ $environment == 2 ]] ; then
-		server="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Server:" 0 0 10 \
-            1 "UNWMEUSELDEVWEB01 - TRAINING CENTRE" \
-			2 "UNWMEUSLMSD01 - WEPS")"
-
-		case $server in
-			1)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.135.148 --auth-type password --username $azuser ;;
-            2)
-                clear
-                az network bastion ssh -n $bastion -g $rg --target-ip-address 10.0.1.4 --auth-type password --username $azuser ;;
-		esac
-	fi
+# Login if necessary
+if ! az account get-access-token &>/dev/null; then
+    echo "--- Logging into $tenant_name_raw ($TENANT_ID) ---"
+    az login --tenant "$TENANT_ID" &>> /tmp/azbastion_$USER.log
 fi
-###############################################
 
-################## UNDP BIO ###################
-if [[ $tenant == 4 ]] ; then
-	bastion="undp-biolab-bastion"
-	rg="undp-prd-biolab-website"
+# Set Subscription
+az account set --subscription "$SUBSCRIPTION"
+echo "Subscription set to: $SUBSCRIPTION"
 
-	environment="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Environment:" 0 0 5 \
-		1 "Production")"
+# Check SSH extension
+check_ssh
 
-	if [[ $environment == 1 ]] ; then
-		server="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Server:" 0 0 10 \
-			1 "undpbio")"
+# 2. Select Environment using FZF
+echo "--------------------------"
+environment_list=$(
+    for key in "${!AZURE_RESOURCES[@]}"; do
+        if [[ "$key" == "$tenant_name_raw":* ]]; then
+            echo "$key" | cut -d: -f2
+        fi
+    done | sort -u
+)
 
-		case $server in
-			1)
-				clear
-				az network bastion ssh -n $bastion -g $rg --target-ip-address 10.88.2.68 --auth-type password --username $azuser ;;
-		esac
-	fi
+selected_environment=$(echo "$environment_list" | fzf --prompt="[$tenant_name_raw] Select Environment: ")
+
+if [ -z "$selected_environment" ]; then
+    echo "Environment selection cancelled."
+    exit 0
 fi
-###############################################
 
-################## UNCTAD## ###################
-if [[ $tenant == 5 ]] ; then
-    bastion="opda-shared-bastion"
-    rg="RG-opda-shared-bastion"
+# 3. Select Server using FZF
+resource_key="$tenant_name_raw:$selected_environment"
 
-    environment="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Environment:" 0 0 5 \
-        1 "Production" \
-        2 "Test")"
-
-    if [[ $environment == 1 ]] ; then
-        server="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Server:" 0 0 10 \
-            1 "dmzprodunctadorg-web1" \
-            2 "dmzprodunctadorg-web2" \
-            3 "dmzprodunctadorg-solr1")"
-
-        case $server in
-            1)
-                clear
-                az network bastion ssh -n $bastion -g $rg --target-ip-address 10.0.1.4 --auth-type password --username $azuser ;;
-            2)
-                clear
-                az network bastion ssh -n $bastion -g $rg --target-ip-address 10.0.1.7 --auth-type password --username $azuser ;;
-            3)
-                clear
-                az network bastion ssh -n $bastion -g $rg --target-ip-address 10.0.1.5 --auth-type password --username $azuser ;;
-        esac
-    fi
-
-    if [[ $environment == 2 ]] ; then
-        server="$(dialog --backtitle "Azure Bastion tunnel connection" --stdout --default-item 1 --menu "Select Server:" 0 0 10 \
-            1 "dmzuatunctadorg-web1")"
-
-        case $server in
-            1)
-                clear
-                az network bastion ssh -n $bastion -g $rg --target-ip-address 10.0.0.4 --auth-type password --username $azuser ;;
-        esac
-    fi
+if [ -z "${AZURE_RESOURCES[$resource_key]+x}" ]; then
+    echo "Error: unknown environment '$selected_environment' for tenant '$tenant_name_raw'."
+    exit 1
 fi
-###############################################
+
+resource_data="${AZURE_RESOURCES[$resource_key]}"
+
+# Extract Bastion, RG, and raw servers list
+IFS=':' read -r bastion rg raw_servers <<< "$resource_data"
+
+# Convert pipe-separated server list to newline-separated for FZF
+server_ip_list=$(printf '%s\n' "$raw_servers" | tr '|' '\n')
+
+# Use awk to format output for FZF (Server Name | IP Address) and then select the line
+selected_server_line=$(printf '%s\n' "$server_ip_list" | awk -F':' '{printf "%-40s %s\n", $1, $2}' | fzf --prompt="[$tenant_name_raw/$selected_environment] Select Server (Name | IP): ")
+
+if [ -z "$selected_server_line" ]; then
+    echo "Server selection cancelled."
+    exit 0
+fi
+
+# Extract IP address from the selected line
+# The line is now space-padded: "ServerName                     10.x.x.x"
+# We extract the last field (the IP)
+TARGET_IP=$(echo "$selected_server_line" | awk '{print $NF}')
+SERVER_NAME=$(echo "$selected_server_line" | awk '{$NF=""; print $0}' | xargs) # Get all but the last field (IP) and trim
+
+# 4. Initiate Azure Bastion SSH Connection
+echo -e "\n--- Connecting to $SERVER_NAME ($TARGET_IP) ---"
+echo "Bastion: $bastion, Resource Group: $rg, User: $azuser"
+
+az network bastion ssh -n "$bastion" -g "$rg" --target-ip-address "$TARGET_IP" --auth-type password --username "$azuser"
