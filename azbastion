@@ -25,7 +25,9 @@ UNWOMEN_tenant="unwomen.onmicrosoft.com"
 UNWOMEN_config_dir="$HOME/.azure_WOMEN"
 UNDPBIO_tenant="iccundp.onmicrosoft.com"
 UNDPBIO_config_dir="$HOME/.azure_UNDPBIO"
-UNCTAD_tenant="unicc.onmicrosoft.com"  # for UNCTAD we use the UNICC bastion
+# UNCTAD only borrows the UNICC bastion. Its resources (VMs, MySQL) are in the
+# UNCTAD tenant (unctad.onmicrosoft.com, sub UNICC-DMZ): use ~/.azure_UNCTAD for az queries.
+UNCTAD_tenant="unicc.onmicrosoft.com"
 UNCTAD_config_dir="$HOME/.azure_UNICC"
 
 # Map of Tenant Names to their Configurations and Subscriptions
