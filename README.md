@@ -37,23 +37,28 @@ Before first use, edit the `azuser` variable in the script to your own username,
 
 ### azmaintenance
 
-Enables or disables Azure Monitor alert-processing "maintenance mode" rules for a set of servers, per organization/environment.
+Enables or disables Azure Monitor alert-processing "maintenance mode" rules for a set of servers, per organization/environment, or for web URLs monitored by UNICC Cloud Web Hosting Monitoring.
 
 ```
 azmaintenance -o organization -e environment -a action [-s start_date] [-f finish_date] [-d description]
+azmaintenance -w url [-w url ...] -a action [-s start_date] [-f finish_date] [-d description]
 
   -o   Organization: IIIM | IIMM
   -e   Environment: prod | test
+  -w   Web URL (repeatable). Finds the "<web test> - Web Maintenance Mode" rule of the
+       App Insights web test for that host and updates it in place, keeping its Terraform tags
   -a   Action: enable | disable
   -s   Maintenance start date (UTC, "yyyy-mm-dd hh:mm:ss"). Default: now
   -f   Maintenance finish date (UTC, "yyyy-mm-dd hh:mm:ss"). Default: start + 1 hour
   -d   Description (enable only)
 ```
 
-Example:
+Examples:
 
 ```
 azmaintenance -o IIIM -e prod -a enable -s "2026-09-14 12:00:00" -f "2026-09-14 13:00:00" -d "Monthly patching"
+azmaintenance -w https://bangkok.ohchr.org -w cambodia.ohchr.org -a enable -f "2026-11-03 10:00:00" -d "Until PHP is patched"
+azmaintenance -w bangkok.ohchr.org -a disable
 ```
 
-Gives a 10-second countdown before applying the change, and prints a per-server success/error status.
+Gives a 10-second countdown before applying the change, and prints a per-server (or per-rule) success/error status.
