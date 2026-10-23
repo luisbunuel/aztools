@@ -3,7 +3,7 @@
 # Enable or Disable the maintenance mode on Azure servers and monitored web URLs
 # https://github.com/luisbunuel/aztools
 
-VERSION="2.0"
+VERSION="2.1"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m'
@@ -12,6 +12,8 @@ start_date=`date -u +"%Y-%m-%d %H:%M:%S"`
 temp_finish_date=`date -u -d "+1 hour" +"%Y-%m-%d %H:%M:%S"`
 
 help() {
+	echo
+	echo "$me $VERSION"
 	echo
 	echo "Syntax:"
 	echo
