@@ -43,7 +43,7 @@ Enables or disables Azure Monitor alert-processing "maintenance mode" rules for 
 azmaintenance -o organization -e environment -a action [-s start_date] [-f finish_date] [-d description]
 azmaintenance -w url [-w url ...] -a action [-s start_date] [-f finish_date] [-d description] [-F]
 
-  -o   Organization: IIIM | IIMM
+  -o   Organization: IIIM
   -e   Environment: prod | test
   -w   Web URL (repeatable). Finds the "<web test> - Web Maintenance Mode" rule of the
        App Insights web test for that host and updates it in place, keeping its Terraform tags.
@@ -59,7 +59,7 @@ azmaintenance -w url [-w url ...] -a action [-s start_date] [-f finish_date] [-d
 Examples:
 
 ```
-azmaintenance -o IIMM -e prod -a enable -s "2026-09-14 12:00:00" -f "2026-09-14 13:00:00" -d "Monthly patching"
+azmaintenance -o IIIM -e prod -a enable -s "2026-09-14 12:00:00" -f "2026-09-14 13:00:00" -d "Monthly patching"
 azmaintenance -w https://bangkok.ohchr.org -w cambodia.ohchr.org -a enable -f "2026-11-03 10:00:00" -d "Until PHP is patched"
 azmaintenance -w bangkok.ohchr.org -a disable
 ```

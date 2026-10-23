@@ -3,7 +3,7 @@
 # Enable or Disable the maintenance mode on Azure servers and monitored web URLs
 # https://github.com/luisbunuel/aztools
 
-VERSION="1.3"
+VERSION="1.4"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m'
@@ -21,7 +21,7 @@ help() {
 	echo
 	echo "Options:"
 	echo
-	echo "    -o   Enter the organizatino IIIM|IIMM"
+	echo "    -o   Enter the organization IIIM"
 	echo
 	echo "    -e   Enter the environment prod|test"
 	echo
@@ -47,8 +47,8 @@ help() {
 	echo
 	echo "Examples:"
 	echo 
-	echo "	$me -o IIMM -e prod -a enable -s \"$start_date\" -f \"$temp_finish_date\" -d \"Monthly patching\" "
-	echo "	$me -o IIMM -e test -a disable"
+	echo "	$me -o IIIM -e prod -a enable -s \"$start_date\" -f \"$temp_finish_date\" -d \"Monthly patching\" "
+	echo "	$me -o IIIM -e test -a disable"
 	echo "	$me -w https://bangkok.ohchr.org -w cambodia.ohchr.org -a enable -f \"$temp_finish_date\" -d \"Until PHP is patched\" "
 	echo "	$me -w bangkok.ohchr.org -a disable"
 	echo
@@ -253,7 +253,7 @@ done
 
 if [ -z "$organization" ] && [ ${#webs[@]} -eq 0 ]; then
 	echo
-	echo "Please enter the organization, -o [IIIM|IIMM]"
+	echo "Please enter the organization, -o IIIM"
 	exit 1
 fi
 
@@ -286,16 +286,9 @@ case $organization in
 		scope="/subscriptions/5638ba20-5e01-4f95-ac49-a4c1f1f2af66/resourceGroups/RG-IIIM-cloudops"
 		org="iiim"
 		;;
-	IIMM)
-		export AZURE_CONFIG_DIR=~/.azure_IIMM
-		az config set extension.use_dynamic_install=yes_without_prompt &>/dev/null
-		resource_group="RG-IIMM-cloudops"
-		scope="/subscriptions/17e000ff-d917-43d8-9d1a-eaf799757636/resourceGroups/RG-IIMM-cloudops"
-		org="iimm"
-		;;
 	*)
 		echo
-		echo "Enter a valid organization: IIIM or IIMM"
+		echo "Enter a valid organization: IIIM"
 		exit 1
 		;;
 esac
