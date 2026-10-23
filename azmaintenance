@@ -3,7 +3,7 @@
 # Enable or Disable the maintenance mode on Azure servers and monitored web URLs
 # https://github.com/luisbunuel/aztools
 
-VERSION="1.2"
+VERSION="1.3"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m'
@@ -17,7 +17,7 @@ help() {
 	echo "Syntax:"
 	echo
 	echo "    $me -o organization -e environment -a action [-s start_date] [-f finish_date] [-d description]"
-	echo "    $me -w url [-w url ...] -a action [-s start_date] [-f finish_date] [-d description]"
+	echo "    $me -w url [-w url ...] -a action [-s start_date] [-f finish_date] [-d description] [-F]"
 	echo
 	echo "Options:"
 	echo
@@ -28,6 +28,9 @@ help() {
 	echo "    -w   Enter a web URL monitored by an App Insights web test (UNICC CWHM, UN Women or UNDP)"
 	echo "           Can be repeated. -o and -e are not needed with -w"
 	echo "           The web maintenance rule is created on enable if it does not exist"
+	echo "           A web already in maintenance (enabled now or scheduled) is skipped on enable"
+	echo
+	echo "    -F   With -w, overwrite the maintenance window of webs already in maintenance"
 	echo
 	echo "    -a   Enter the action enable|disable"
 	echo
@@ -44,7 +47,7 @@ help() {
 	echo
 	echo "Examples:"
 	echo 
-	echo "	$me -o IIIM -e prod -a enable -s \"$start_date\" -f \"$temp_finish_date\" -d \"Monthly patching\" "
+	echo "	$me -o IIMM -e prod -a enable -s \"$start_date\" -f \"$temp_finish_date\" -d \"Monthly patching\" "
 	echo "	$me -o IIMM -e test -a disable"
 	echo "	$me -w https://bangkok.ohchr.org -w cambodia.ohchr.org -a enable -f \"$temp_finish_date\" -d \"Until PHP is patched\" "
 	echo "	$me -w bangkok.ohchr.org -a disable"
@@ -64,6 +67,32 @@ web_targets=(
 	"UNDP:8a28c155-4f07-42b5-ae59-e480499031dd:d814ebea-702d-465a-a3db-f1235970409e"
 )
 
+# Sets $state to a readable summary of the rule fields (enabled, efrom, euntil, tz, desc, by)
+# and $active to 1 when the rule is enabled now or scheduled. Dates are compared as UTC
+# whatever their time zone, which is shown next to them.
+rule_state() {
+	active=0
+	now=`date -u +"%Y-%m-%dT%H:%M:%S"`
+	efrom=${efrom:0:19}
+	euntil=${euntil:0:19}
+	if [ "$enabled" != "true" ]; then
+		state="Disabled"
+	elif [ -z "$euntil" ]; then
+		state="Enabled with no end date"
+		active=1
+	elif [[ "$now" < "$efrom" ]]; then
+		state="Scheduled from ${efrom/T/ } to ${euntil/T/ } $tz"
+		active=1
+	elif [[ ! "$euntil" < "$now" ]]; then
+		state="Enabled until ${euntil/T/ } $tz"
+		active=1
+	else
+		state="Expired on ${euntil/T/ } $tz"
+	fi
+	[ -n "$desc" ] && state+=", \"$desc\""
+	[ -n "$by" ] && state+=", by $by"
+}
+
 web_maintenance() {
 	case $action in
 		enable|disable) ;;
@@ -82,7 +111,8 @@ web_maintenance() {
 		fi
 	done
 
-	# Each entry: profile|subscription|resource_group|test|rule (rule empty if missing)
+	# Each entry: profile|subscription|resource_group|test|rule|enabled|efrom|euntil|tz|by|desc
+	# (rule fields empty if the rule is missing)
 	rules=()
 	for web in "${webs[@]}"
 	do
@@ -103,8 +133,10 @@ web_maintenance() {
 | project test=tostring(properties.Name), resourceGroup=tolower(resourceGroup)
 | join kind=leftouter (resources
     | where type =~ 'microsoft.alertsmanagement/actionrules' and name endswith ' - Web Maintenance Mode'
-    | project rule=name, test=replace_string(name, ' - Web Maintenance Mode', ''), resourceGroup=tolower(resourceGroup)) on test, resourceGroup
-| project line=strcat('$profile|$subscription|', resourceGroup, '|', test, '|', rule)"
+    | project rule=name, test=replace_string(name, ' - Web Maintenance Mode', ''), resourceGroup=tolower(resourceGroup),
+        enabled=tostring(properties.enabled), efrom=tostring(properties.schedule.effectiveFrom), euntil=tostring(properties.schedule.effectiveUntil),
+        tz=tostring(properties.schedule.timeZone), mby=tostring(systemData.lastModifiedBy), mdesc=tostring(properties.description)) on test, resourceGroup
+| project line=strcat('$profile|$subscription|', resourceGroup, '|', test, '|', rule, '|', enabled, '|', efrom, '|', euntil, '|', tz, '|', mby, '|', mdesc)"
 
 			lines=`AZURE_CONFIG_DIR=~/.azure_$profile az graph query --subscriptions $subscription -q "$query" --query 'data[].line' -o tsv 2>/dev/null`
 			if [ $? != 0 ]; then
@@ -120,10 +152,18 @@ web_maintenance() {
 		fi
 		while IFS= read -r line; do
 			[ -z "$line" ] && continue
-			IFS='|' read -r profile subscription rg test rule <<< "$line"
+			IFS='|' read -r profile subscription rg test rule enabled efrom euntil tz by desc <<< "$line"
 			if [ -z "$rule" ] && [ "$action" == "disable" ]; then
 				echo "$web: \"$test\" has no maintenance rule, nothing to disable"
 				continue
+			fi
+			if [ -n "$rule" ] && [ "$action" == "enable" ] && [ -z "$force" ]; then
+				rule_state
+				if [ $active == 1 ]; then
+					echo -e "$web: ${RED}Already in maintenance, skipped${NC} (use -F to overwrite)"
+					echo "	$state"
+					continue
+				fi
 			fi
 			rules+=("$line")
 		done <<< "$found"
@@ -145,9 +185,11 @@ web_maintenance() {
 	fi
 	echo
 	for r in "${rules[@]}"; do
-		IFS='|' read -r profile subscription rg test rule <<< "$r"
+		IFS='|' read -r profile subscription rg test rule enabled efrom euntil tz by desc <<< "$r"
 		if [ -n "$rule" ]; then
+			rule_state
 			echo "	$rule ($profile)"
+			echo "	    Current: $state"
 		else
 			echo "	$test - Web Maintenance Mode ($profile, will be created)"
 		fi
@@ -167,7 +209,7 @@ web_maintenance() {
 
 	for r in "${rules[@]}"
 	do
-		IFS='|' read -r profile subscription rg test rule <<< "$r"
+		IFS='|' read -r profile subscription rg test rule enabled efrom euntil tz by desc <<< "$r"
 		export AZURE_CONFIG_DIR=~/.azure_$profile
 		if [ "$action" == "disable" ]; then
 			az monitor alert-processing-rule update --subscription $subscription --resource-group $rg --name "$rule" --enabled false &>/dev/null
@@ -195,7 +237,7 @@ fi
 
 webs=()
 
-while getopts o:e:a:s:f:d:w: flag
+while getopts o:e:a:s:f:d:w:F flag
 do
     case "${flag}" in
 		o) organization=${OPTARG};;
@@ -205,6 +247,7 @@ do
         f) finish_date=${OPTARG};;
         d) description=${OPTARG};;
 		w) webs+=("${OPTARG}");;
+		F) force=1;;
     esac
 done
 
@@ -227,7 +270,7 @@ if [ -z "$action" ]; then
 fi
 
 if [ -z "$finish_date" ]; then
-	finish_date=`date -d "$start_date +hour" +"%Y-%m-%d %H:%M:%S"`
+	finish_date=`date -u -d "$start_date UTC +1 hour" +"%Y-%m-%d %H:%M:%S"`
 fi
 
 if [ ${#webs[@]} -gt 0 ]; then

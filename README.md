@@ -41,7 +41,7 @@ Enables or disables Azure Monitor alert-processing "maintenance mode" rules for 
 
 ```
 azmaintenance -o organization -e environment -a action [-s start_date] [-f finish_date] [-d description]
-azmaintenance -w url [-w url ...] -a action [-s start_date] [-f finish_date] [-d description]
+azmaintenance -w url [-w url ...] -a action [-s start_date] [-f finish_date] [-d description] [-F]
 
   -o   Organization: IIIM | IIMM
   -e   Environment: prod | test
@@ -52,12 +52,14 @@ azmaintenance -w url [-w url ...] -a action [-s start_date] [-f finish_date] [-d
   -s   Maintenance start date (UTC, "yyyy-mm-dd hh:mm:ss"). Default: now
   -f   Maintenance finish date (UTC, "yyyy-mm-dd hh:mm:ss"). Default: start + 1 hour
   -d   Description (enable only)
+  -F   With -w, overwrite the window of webs already in maintenance. Without it, enable
+       skips a web whose rule is enabled now or scheduled, and shows its current window
 ```
 
 Examples:
 
 ```
-azmaintenance -o IIIM -e prod -a enable -s "2026-09-14 12:00:00" -f "2026-09-14 13:00:00" -d "Monthly patching"
+azmaintenance -o IIMM -e prod -a enable -s "2026-09-14 12:00:00" -f "2026-09-14 13:00:00" -d "Monthly patching"
 azmaintenance -w https://bangkok.ohchr.org -w cambodia.ohchr.org -a enable -f "2026-11-03 10:00:00" -d "Until PHP is patched"
 azmaintenance -w bangkok.ohchr.org -a disable
 ```
