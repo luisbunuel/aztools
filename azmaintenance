@@ -3,7 +3,7 @@
 # Enable or Disable the maintenance mode on Azure servers and monitored web URLs
 # https://github.com/luisbunuel/aztools
 
-VERSION="1.1"
+VERSION="1.2"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m'
@@ -25,8 +25,9 @@ help() {
 	echo
 	echo "    -e   Enter the environment prod|test"
 	echo
-	echo "    -w   Enter a web URL monitored by UNICC Cloud Web Hosting Monitoring"
+	echo "    -w   Enter a web URL monitored by an App Insights web test (UNICC CWHM, UN Women or UNDP)"
 	echo "           Can be repeated. -o and -e are not needed with -w"
+	echo "           The web maintenance rule is created on enable if it does not exist"
 	echo
 	echo "    -a   Enter the action enable|disable"
 	echo
@@ -50,18 +51,38 @@ help() {
 	echo
 }
 
-# Web URLs are monitored by App Insights web tests in the Cloud Web Hosting Monitoring
-# subscription; each web test has a "<test> - Web Maintenance Mode" processing rule
-# created by Terraform. The rule is updated in place (--set) to keep its Terraform tags.
+# Web URLs are monitored by App Insights web tests. A web test is put in maintenance by the
+# "<test> - Web Maintenance Mode" processing rule of its resource group. In Cloud Web Hosting
+# Monitoring Terraform creates one per test; elsewhere (UN Women) most tests have none.
+# An existing rule is updated in place (--set) to keep its Terraform tags; a missing one is
+# created on enable, with the same conditions Terraform uses.
+# Subscriptions with web tests, as profile:tenant:subscription (profile = ~/.azure_<profile>)
+web_targets=(
+	"UNICC:unicc.onmicrosoft.com:1c4f31f8-0ebe-4167-b641-e30e9796ed88"
+	"WOMEN:2bcd0744-9e18-487d-85c3-c9a325220be8:9c358701-163d-446b-ae40-41537f2e58f4"
+	"UNDP:8a28c155-4f07-42b5-ae59-e480499031dd:e9d86b44-b795-49db-a164-52dd079ea32e"
+	"UNDP:8a28c155-4f07-42b5-ae59-e480499031dd:d814ebea-702d-465a-a3db-f1235970409e"
+)
+
 web_maintenance() {
-	export AZURE_CONFIG_DIR=~/.azure_UNICC
-	web_subscription="1c4f31f8-0ebe-4167-b641-e30e9796ed88"
-	web_resource_group="icc-cwhm-core-rg-01"
+	case $action in
+		enable|disable) ;;
+		*)
+			echo "Enter a valid action: enable or disable"
+			exit 1
+			;;
+	esac
 
-	if ! az account get-access-token &>/dev/null; then
-		az login --tenant unicc.onmicrosoft.com &>/dev/null
-	fi
+	for target in "${web_targets[@]}"
+	do
+		IFS=: read -r profile tenant subscription <<< "$target"
+		export AZURE_CONFIG_DIR=~/.azure_$profile
+		if ! az account get-access-token &>/dev/null; then
+			az login --tenant $tenant &>/dev/null
+		fi
+	done
 
+	# Each entry: profile|subscription|resource_group|test|rule (rule empty if missing)
 	rules=()
 	for web in "${webs[@]}"
 	do
@@ -72,21 +93,38 @@ web_maintenance() {
 			continue
 		fi
 
-		query="resources
+		found=""
+		for target in "${web_targets[@]}"
+		do
+			IFS=: read -r profile tenant subscription <<< "$target"
+			query="resources
 | where type =~ 'microsoft.insights/webtests'
 | where tostring(split(tostring(split(tostring(properties.Request.RequestUrl), '://')[1]), '/')[0]) =~ '$host'
-| project prefix=tostring(split(name, ' ')[0])
-| join kind=inner (resources
-    | where type =~ 'microsoft.alertsmanagement/actionrules' and resourceGroup =~ '$web_resource_group' and name endswith ' - Web Maintenance Mode'
-    | project rule=name, prefix=tostring(split(name, ' ')[0])) on prefix
-| distinct rule"
+| project test=tostring(properties.Name), resourceGroup=tolower(resourceGroup)
+| join kind=leftouter (resources
+    | where type =~ 'microsoft.alertsmanagement/actionrules' and name endswith ' - Web Maintenance Mode'
+    | project rule=name, test=replace_string(name, ' - Web Maintenance Mode', ''), resourceGroup=tolower(resourceGroup)) on test, resourceGroup
+| project line=strcat('$profile|$subscription|', resourceGroup, '|', test, '|', rule)"
 
-		found=`az graph query --subscriptions $web_subscription -q "$query" --query 'data[].rule' -o tsv 2>/dev/null`
+			lines=`AZURE_CONFIG_DIR=~/.azure_$profile az graph query --subscriptions $subscription -q "$query" --query 'data[].line' -o tsv 2>/dev/null`
+			if [ $? != 0 ]; then
+				echo -e "$web: ${RED}Query error in $profile${NC}"
+				continue
+			fi
+			[ -n "$lines" ] && found+="$lines"$'\n'
+		done
+
 		if [ -z "$found" ]; then
-			echo -e "$web: ${RED}No maintenance rule found${NC}"
+			echo -e "$web: ${RED}No web test found${NC}"
 			continue
 		fi
 		while IFS= read -r line; do
+			[ -z "$line" ] && continue
+			IFS='|' read -r profile subscription rg test rule <<< "$line"
+			if [ -z "$rule" ] && [ "$action" == "disable" ]; then
+				echo "$web: \"$test\" has no maintenance rule, nothing to disable"
+				continue
+			fi
 			rules+=("$line")
 		done <<< "$found"
 	done
@@ -96,25 +134,23 @@ web_maintenance() {
 	fi
 
 	echo
-	case $action in
-		enable)
-			echo "Enabling web maintenance"
-			echo
-			echo "	Start date: $start_date" UTC;
-			echo "	Finish date: $finish_date" UTC;
-			echo "	Description: $description";
-			;;
-		disable)
-			echo "Disabling web maintenance"
-			;;
-		*)
-			echo "Enter a valid action: enable or disable"
-			exit 1
-			;;
-	esac
+	if [ "$action" == "enable" ]; then
+		echo "Enabling web maintenance"
+		echo
+		echo "	Start date: $start_date" UTC;
+		echo "	Finish date: $finish_date" UTC;
+		echo "	Description: $description";
+	else
+		echo "Disabling web maintenance"
+	fi
 	echo
 	for r in "${rules[@]}"; do
-		echo "	$r"
+		IFS='|' read -r profile subscription rg test rule <<< "$r"
+		if [ -n "$rule" ]; then
+			echo "	$rule ($profile)"
+		else
+			echo "	$test - Web Maintenance Mode ($profile, will be created)"
+		fi
 	done
 	echo
 	echo "You have 10 seconds to cancel this operation ..."
@@ -131,16 +167,23 @@ web_maintenance() {
 
 	for r in "${rules[@]}"
 	do
-		if [ "$action" == "enable" ]; then
-			az monitor alert-processing-rule update --subscription $web_subscription --resource-group $web_resource_group --name "$r" --enabled true --set properties.description="$description" "properties.schedule={\"effectiveFrom\":\"${start_date/ /T}\",\"effectiveUntil\":\"${finish_date/ /T}\",\"timeZone\":\"UTC\"}" &>/dev/null
+		IFS='|' read -r profile subscription rg test rule <<< "$r"
+		export AZURE_CONFIG_DIR=~/.azure_$profile
+		if [ "$action" == "disable" ]; then
+			az monitor alert-processing-rule update --subscription $subscription --resource-group $rg --name "$rule" --enabled false &>/dev/null
+		elif [ -n "$rule" ]; then
+			az monitor alert-processing-rule update --subscription $subscription --resource-group $rg --name "$rule" --enabled true --set properties.description="$description" "properties.schedule={\"effectiveFrom\":\"${start_date/ /T}\",\"effectiveUntil\":\"${finish_date/ /T}\",\"timeZone\":\"UTC\"}" &>/dev/null
 		else
-			az monitor alert-processing-rule update --subscription $web_subscription --resource-group $web_resource_group --name "$r" --enabled false &>/dev/null
+			# create stores --description as "['text']", so it is set afterwards
+			rule="$test - Web Maintenance Mode"
+			az monitor alert-processing-rule create --subscription $subscription --resource-group $rg --name "$rule" --scopes "/subscriptions/$subscription/resourceGroups/$rg" --rule-type RemoveAllActionGroups --filter-monitor-condition Equals Fired --filter-alert-context Contains "$test" --enabled true --schedule-start-datetime "$start_date" --schedule-end-datetime "$finish_date" --schedule-time-zone UTC &>/dev/null &&
+			az monitor alert-processing-rule update --subscription $subscription --resource-group $rg --name "$rule" --set properties.description="$description" &>/dev/null
 		fi
 
 		if [ $? == 0 ]; then
-			echo -e "$r: ${GREEN}Success${NC}"
+			echo -e "$rule: ${GREEN}Success${NC}"
 		else
-			echo -e "$r: ${RED}Error${NC}"
+			echo -e "$rule: ${RED}Error${NC}"
 		fi
 	done
 }
@@ -261,7 +304,9 @@ case $action in
 
 		for server in ${servers[@]}
 		do
-			az monitor alert-processing-rule create --enabled true --name "$server - Server Maintenance Mode" --description "$description" --resource-group $resource_group --scope $scope --filter-alert-context Contains $server --filter-monitor-condition Equals Fired --rule-type $rule --schedule-start-datetime "$start_date" --schedule-end-datetime "$finish_date" &>/dev/null
+			# create stores --description as "['text']", so it is set afterwards
+			az monitor alert-processing-rule create --enabled true --name "$server - Server Maintenance Mode" --resource-group $resource_group --scope $scope --filter-alert-context Contains $server --filter-monitor-condition Equals Fired --rule-type $rule --schedule-start-datetime "$start_date" --schedule-end-datetime "$finish_date" &>/dev/null &&
+			az monitor alert-processing-rule update --name "$server - Server Maintenance Mode" --resource-group $resource_group --set properties.description="$description" &>/dev/null
 			if [ $? == 0 ]; then
 				echo -e "$server: ${GREEN}Success${NC}"
 			else

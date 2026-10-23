@@ -37,7 +37,7 @@ Before first use, edit the `azuser` variable in the script to your own username,
 
 ### azmaintenance
 
-Enables or disables Azure Monitor alert-processing "maintenance mode" rules for a set of servers, per organization/environment, or for web URLs monitored by UNICC Cloud Web Hosting Monitoring.
+Enables or disables Azure Monitor alert-processing "maintenance mode" rules for a set of servers, per organization/environment, or for web URLs monitored by App Insights web tests (UNICC Cloud Web Hosting Monitoring, UN Women and UNDP).
 
 ```
 azmaintenance -o organization -e environment -a action [-s start_date] [-f finish_date] [-d description]
@@ -46,7 +46,8 @@ azmaintenance -w url [-w url ...] -a action [-s start_date] [-f finish_date] [-d
   -o   Organization: IIIM | IIMM
   -e   Environment: prod | test
   -w   Web URL (repeatable). Finds the "<web test> - Web Maintenance Mode" rule of the
-       App Insights web test for that host and updates it in place, keeping its Terraform tags
+       App Insights web test for that host and updates it in place, keeping its Terraform tags.
+       If the test has no such rule (most UN Women tests), enable creates it
   -a   Action: enable | disable
   -s   Maintenance start date (UTC, "yyyy-mm-dd hh:mm:ss"). Default: now
   -f   Maintenance finish date (UTC, "yyyy-mm-dd hh:mm:ss"). Default: start + 1 hour
