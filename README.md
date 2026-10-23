@@ -37,31 +37,31 @@ Before first use, edit the `azuser` variable in the script to your own username,
 
 ### azmaintenance
 
-Enables or disables Azure Monitor alert-processing "maintenance mode" rules for a set of servers, per organization/environment, or for web URLs monitored by App Insights web tests (UNICC Cloud Web Hosting Monitoring, UN Women and UNDP).
+Enables or disables Azure Monitor alert-processing "maintenance mode" rules for servers and for web URLs monitored by App Insights web tests. It searches every subscription of the Azure CLI profiles listed in the `profiles` array of the script (UNICC, UN Women, UNDP and UNCTAD).
 
 ```
-azmaintenance -o organization -e environment -a action [-s start_date] [-f finish_date] [-d description]
-azmaintenance -w url [-w url ...] -a action [-s start_date] [-f finish_date] [-d description] [-F]
+azmaintenance [-w url ...] [-v server ...] -a action [-s start_date] [-f finish_date] [-d description] [-F]
 
-  -o   Organization: IIIM
-  -e   Environment: prod | test
   -w   Web URL (repeatable). Finds the "<web test> - Web Maintenance Mode" rule of the
        App Insights web test for that host and updates it in place, keeping its Terraform tags.
        If the test has no such rule (most UN Women tests), enable creates it
+  -v   Server name (repeatable). Finds its "<server> - Server Maintenance Mode" rule and
+       updates it in place. A missing server rule is not created
   -a   Action: enable | disable
   -s   Maintenance start date (UTC, "yyyy-mm-dd hh:mm:ss"). Default: now
   -f   Maintenance finish date (UTC, "yyyy-mm-dd hh:mm:ss"). Default: start + 1 hour
   -d   Description (enable only)
-  -F   With -w, overwrite the window of webs already in maintenance. Without it, enable
-       skips a web whose rule is enabled now or scheduled, and shows its current window
+  -F   Overwrite the window of webs or servers already in maintenance. Without it, enable
+       skips a rule that is enabled now or scheduled, and shows its current window
 ```
 
 Examples:
 
 ```
-azmaintenance -o IIIM -e prod -a enable -s "2026-09-14 12:00:00" -f "2026-09-14 13:00:00" -d "Monthly patching"
+azmaintenance -v UNWMEUSLMSP01 -v UNWMEUSLMSD01 -a enable -s "2026-09-14 12:00:00" -f "2026-09-14 13:00:00" -d "Monthly patching"
+azmaintenance -v UNWMEUSLMSP01 -a disable
 azmaintenance -w https://bangkok.ohchr.org -w cambodia.ohchr.org -a enable -f "2026-11-03 10:00:00" -d "Until PHP is patched"
 azmaintenance -w bangkok.ohchr.org -a disable
 ```
 
-Gives a 10-second countdown before applying the change, and prints a per-server (or per-rule) success/error status.
+Lists the current state of each rule, gives a 10-second countdown before applying the change, and prints a per-rule success/error status.
