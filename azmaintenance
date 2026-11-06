@@ -3,7 +3,7 @@
 # Enable or Disable the maintenance mode on Azure servers and monitored web URLs
 # https://github.com/luisbunuel/aztools
 
-VERSION="2.1"
+VERSION="2.2"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m'
@@ -52,10 +52,13 @@ help() {
 	echo
 }
 
-# Every subscription of these Azure CLI profiles is searched, as profile:tenant
-# (profile = ~/.azure_<profile>)
-profiles=(
-	"UNICC:unicc.onmicrosoft.com"
+# Always the default Azure CLI profile, even if the calling shell exports another one
+unset AZURE_CONFIG_DIR
+
+# Every subscription of these tenants is searched, as name:tenant_id. All of them are
+# in the default profile (~/.azure); every az call names its subscription.
+tenants=(
+	"UNICC:a33def57-39f8-4005-93ed-e80266830257"
 	"WOMEN:2bcd0744-9e18-487d-85c3-c9a325220be8"
 	"UNDP:8a28c155-4f07-42b5-ae59-e480499031dd"
 	"UNCTAD:a762cd91-8d33-48ee-b922-9247363bd586"
@@ -101,19 +104,41 @@ rule_state() {
 	[ -n "$by" ] && state+=", by $by"
 }
 
-# Runs the Resource Graph query $1 in every profile and leaves the lines it returns in
-# $found, prefixed with the profile. $2 is the web or server, for error messages.
+# Logs into every tenant without a valid token and leaves its subscription IDs in
+# tenant_subs[name]. Tokens are checked by subscription: with --tenant, az uses the
+# account of the default subscription, which may belong to another tenant.
+declare -A tenant_subs
+login_tenants() {
+	for t in "${tenants[@]}"
+	do
+		IFS=: read -r tname tenant <<< "$t"
+		subs=`az account list --query "[?tenantId=='$tenant'].id" -o tsv 2>/dev/null`
+		if [ -z "$subs" ] || ! az account get-access-token --subscription ${subs%%$'\n'*} &>/dev/null; then
+			az login --tenant $tenant &>/dev/null
+			subs=`az account list --query "[?tenantId=='$tenant'].id" -o tsv 2>/dev/null`
+		fi
+		tenant_subs[$tname]=`echo $subs`
+	done
+}
+
+# Runs the Resource Graph query $1 in every tenant and leaves the lines it returns in
+# $found, prefixed with the tenant name. $2 is the web or server, for error messages.
 graph_lines() {
 	found=""
-	for p in "${profiles[@]}"
+	for t in "${tenants[@]}"
 	do
-		IFS=: read -r profile tenant <<< "$p"
-		lines=`AZURE_CONFIG_DIR=~/.azure_$profile az graph query --first 1000 -q "$1" --query 'data[].line' -o tsv 2>/dev/null`
-		if [ $? != 0 ]; then
-			echo -e "$2: ${RED}Query error in $profile${NC}"
+		IFS=: read -r tname tenant <<< "$t"
+		subs=${tenant_subs[$tname]}
+		if [ -z "$subs" ]; then
+			echo -e "$2: ${RED}Not logged into $tname${NC}"
 			continue
 		fi
-		[ -n "$lines" ] && found+=`sed "s/^/$profile|/" <<< "$lines"`$'\n'
+		lines=`az graph query --subscription ${subs%% *} --subscriptions $subs --first 1000 -q "$1" --query 'data[].line' -o tsv 2>/dev/null`
+		if [ $? != 0 ]; then
+			echo -e "$2: ${RED}Query error in $tname${NC}"
+			continue
+		fi
+		[ -n "$lines" ] && found+=`sed "s/^/$tname|/" <<< "$lines"`$'\n'
 	done
 }
 
@@ -122,7 +147,7 @@ graph_lines() {
 add_rules() {
 	while IFS= read -r line; do
 		[ -z "$line" ] && continue
-		IFS='|' read -r profile subscription rg item rule enabled efrom euntil tz by desc <<< "$line"
+		IFS='|' read -r tname subscription rg item rule enabled efrom euntil tz by desc <<< "$line"
 		key="$subscription|$rg|$item|$rule"
 		[ -n "${seen[$key]}" ] && continue
 		seen[$key]=1
@@ -152,16 +177,9 @@ maintenance() {
 			;;
 	esac
 
-	for p in "${profiles[@]}"
-	do
-		IFS=: read -r profile tenant <<< "$p"
-		export AZURE_CONFIG_DIR=~/.azure_$profile
-		if ! az account get-access-token &>/dev/null; then
-			az login --tenant $tenant &>/dev/null
-		fi
-	done
+	login_tenants
 
-	# Each entry: profile|subscription|resource_group|item|rule|enabled|efrom|euntil|tz|by|desc
+	# Each entry: tenant|subscription|resource_group|item|rule|enabled|efrom|euntil|tz|by|desc
 	# (rule fields empty if a web test has no rule)
 	rules=()
 	declare -A seen
@@ -225,13 +243,13 @@ maintenance() {
 	fi
 	echo
 	for r in "${rules[@]}"; do
-		IFS='|' read -r profile subscription rg item rule enabled efrom euntil tz by desc <<< "$r"
+		IFS='|' read -r tname subscription rg item rule enabled efrom euntil tz by desc <<< "$r"
 		if [ -n "$rule" ]; then
 			rule_state
-			echo "	$rule ($profile)"
+			echo "	$rule ($tname)"
 			echo "	    Current: $state"
 		else
-			echo "	$item - Web Maintenance Mode ($profile, will be created)"
+			echo "	$item - Web Maintenance Mode ($tname, will be created)"
 		fi
 	done
 	echo
@@ -249,8 +267,7 @@ maintenance() {
 
 	for r in "${rules[@]}"
 	do
-		IFS='|' read -r profile subscription rg item rule enabled efrom euntil tz by desc <<< "$r"
-		export AZURE_CONFIG_DIR=~/.azure_$profile
+		IFS='|' read -r tname subscription rg item rule enabled efrom euntil tz by desc <<< "$r"
 		if [ "$action" == "disable" ]; then
 			az monitor alert-processing-rule update --subscription $subscription --resource-group $rg --name "$rule" --enabled false &>/dev/null
 		elif [ -n "$rule" ]; then
