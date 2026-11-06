@@ -4,7 +4,7 @@
 # https://github.com/luisbunuel/aztools
 # Refactored to use fzf instead of dialog
 
-VERSION="2.1 (fzf)"
+VERSION="2.2 (fzf)"
 azuser="admbunuel"
 
 if [ -z "$azuser" ]; then
@@ -91,6 +91,18 @@ generate_tenant_fzf_list() {
 # ==============================================================================
 # MAIN SCRIPT EXECUTION
 # ==============================================================================
+
+tunnel=""
+while getopts th flag; do
+    case "$flag" in
+        t) tunnel=1;;
+        *)
+            echo "Usage: $(basename "$0") [-t]"
+            echo "  -t   Open a tunnel to port 22 of the server on a local port (for scp/sftp) instead of an SSH session"
+            exit 1
+            ;;
+    esac
+done
 
 echo "AZBASTION v.$VERSION"
 echo "--------------------------"
@@ -181,12 +193,31 @@ fi
 TARGET_IP=$(echo "$selected_server_line" | awk '{print $NF}')
 SERVER_NAME=$(echo "$selected_server_line" | awk '{$NF=""; print $0}' | xargs) # Get all but the last field (IP) and trim
 
-# 4. Initiate Azure Bastion SSH Connection
-echo -e "\n--- Connecting to $SERVER_NAME ($TARGET_IP) ---"
-echo "Bastion: $bastion, Resource Group: $rg, User: $azuser"
+# 4. Initiate Azure Bastion SSH Connection or tunnel
 
 # The bastion extension (1.4.3) takes the tunnel token from the default
 # subscription and ignores --subscription: a token from another tenant leaves
-# the connection hanging. The token is only requested when the tunnel opens.
+# the connection hanging. az reads the default subscription once, when it
+# starts, so changing it later does not affect connections already open.
 az account set --subscription "$SUBSCRIPTION"
+
+if [ -n "$tunnel" ]; then
+    port=50022
+    while [ -n "$(ss -Hltn "sport = :$port")" ]; do
+        port=$((port + 1))
+    done
+    echo -e "\n--- Tunnel to $SERVER_NAME ($TARGET_IP) on 127.0.0.1:$port, Ctrl+C to close ---"
+    echo "Bastion: $bastion, Resource Group: $rg"
+    echo "From another window:"
+    echo "  scp -P $port $azuser@127.0.0.1:<file> ."
+    echo "  sftp -P $port $azuser@127.0.0.1"
+    echo "  ssh -p $port $azuser@127.0.0.1"
+    echo
+    az network bastion tunnel --subscription "$SUBSCRIPTION" -n "$bastion" -g "$rg" --target-ip-address "$TARGET_IP" --resource-port 22 --port "$port"
+    exit
+fi
+
+echo -e "\n--- Connecting to $SERVER_NAME ($TARGET_IP) ---"
+echo "Bastion: $bastion, Resource Group: $rg, User: $azuser"
+
 az network bastion ssh --subscription "$SUBSCRIPTION" -n "$bastion" -g "$rg" --target-ip-address "$TARGET_IP" --auth-type password --username "$azuser"

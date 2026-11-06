@@ -21,14 +21,15 @@ Interactive tunnel/SSH connection through Azure Bastion, across several tenants.
 
 Flow: pick a **tenant** → pick an **environment** (Production/Test) → pick a **server** → it logs into that tenant (if needed) and opens the connection with `az network bastion ssh`.
 
-All tenants share the default Azure CLI profile (`~/.azure`): `az login --tenant` adds each tenant's subscriptions to it, and every `az` call in the script passes `--subscription`. The exception is the tunnel token: the bastion extension takes it from the default subscription, so the script runs `az account set` right before connecting. The token is only requested when the tunnel opens, so sessions already open are not affected. The tenant picker shows ✔ (green) for tenants with a currently valid session and ✖ (red) otherwise.
+All tenants share the default Azure CLI profile (`~/.azure`): `az login --tenant` adds each tenant's subscriptions to it, and every `az` call in the script passes `--subscription`. The exception is the tunnel token: the bastion extension takes it from the default subscription, so the script runs `az account set` right before connecting. `az` reads the default subscription once, when it starts, so sessions and tunnels already open are not affected. The tenant picker shows ✔ (green) for tenants with a currently valid session and ✖ (red) otherwise.
 
 Tenants/servers are defined in two arrays at the top of the script (`TENANT_MAP`, `AZURE_RESOURCES`) — add or remove a server by editing one line there, no need to touch the rest of the script.
 
 Before first use, edit the `azuser` variable in the script to your own username, and make sure you've run `az login --tenant <id>` (or let the script do it) for each tenant you plan to use.
 
 ```
-./azbastion
+./azbastion        # SSH session
+./azbastion -t     # tunnel to port 22 on the first free local port from 50022, for scp/sftp
 ```
 
 **azbastion.old** — the original `dialog`/ncurses-based version, kept for reference. Same tenants/servers, but every server required its own hardcoded `dialog` menu + `case` block, making it tedious to maintain. Superseded by `azbastion`.
@@ -37,7 +38,7 @@ Before first use, edit the `azuser` variable in the script to your own username,
 
 ### azmaintenance
 
-Enables or disables Azure Monitor alert-processing "maintenance mode" rules for servers and for web URLs monitored by App Insights web tests. It searches every subscription of the Azure CLI profiles listed in the `profiles` array of the script (UNICC, UN Women, UNDP and UNCTAD).
+Enables or disables Azure Monitor alert-processing "maintenance mode" rules for servers and for web URLs monitored by App Insights web tests. It searches every subscription of the tenants listed in the `tenants` array of the script (UNICC, UN Women, UNDP and UNCTAD), all in the default Azure CLI profile.
 
 ```
 azmaintenance [-w url ...] [-v server ...] -a action [-s start_date] [-f finish_date] [-d description] [-F]
