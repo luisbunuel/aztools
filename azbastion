@@ -4,39 +4,32 @@
 # https://github.com/luisbunuel/aztools
 # Refactored to use fzf instead of dialog
 
-VERSION="2.0 (fzf)"
+VERSION="2.1 (fzf)"
 azuser="admbunuel"
 
 if [ -z "$azuser" ]; then
 	echo "Error: The 'azuser' variable is not set. Please edit this script and set it."
-	exit 1 
+	exit 1
 fi
+
+# Always the default profile, even if the calling shell exports another one
+unset AZURE_CONFIG_DIR
 
 # ==============================================================================
 # CONFIGURATION DEFINITION
 # ==============================================================================
 
-# Tenant Definitions
-IIIM_tenant="iiimprod.onmicrosoft.com"
-IIIM_config_dir="$HOME/.azure_IIIM"
-UNDP_tenant="iccundp.onmicrosoft.com"
-UNDP_config_dir="$HOME/.azure_UNDP"
-UNWOMEN_tenant="unwomen.onmicrosoft.com"
-UNWOMEN_config_dir="$HOME/.azure_WOMEN"
-UNDPBIO_tenant="iccundp.onmicrosoft.com"
-UNDPBIO_config_dir="$HOME/.azure_UNDPBIO"
-# UNCTAD only borrows the UNICC bastion. Its resources (VMs, MySQL) are in the
-# UNCTAD tenant (unctad.onmicrosoft.com, sub UNICC-DMZ): use ~/.azure_UNCTAD for az queries.
-UNCTAD_tenant="unicc.onmicrosoft.com"
-UNCTAD_config_dir="$HOME/.azure_UNICC"
-
-# Map of Tenant Names to their Configurations and Subscriptions
+# Tenant ID and bastion subscription ID per tenant (Tenant:Subscription).
+# All tenants share the default Azure CLI profile (~/.azure) and every az call
+# names its subscription.
+# UNCTAD only borrows the UNICC bastion; its VMs and MySQL are in the UNCTAD
+# tenant (sub UNICC-DMZ).
 declare -A TENANT_MAP=(
-    ["IIIM"]="$IIIM_config_dir:$IIIM_tenant:IIIM - Connectivity Hub"
-    ["UNDP"]="$UNDP_config_dir:$UNDP_tenant:ICCUNDP - Production"
-    ["UNWOMEN"]="$UNWOMEN_config_dir:$UNWOMEN_tenant:UNICC"
-    ["UNDPBIO"]="$UNDPBIO_config_dir:$UNDPBIO_tenant:UNDP - UN Biodiversity Lab Hosting - WP site"
-    ["UNCTAD"]="$UNCTAD_config_dir:$UNCTAD_tenant:UNICC OPDA - Shared Bastion"
+    ["IIIM"]="c612d8a1-ddb7-42f9-8fdd-81d605eac0fe:ac10566c-1b69-491e-b2ce-91fd14c266ff"     # IIIM - Connectivity Hub
+    ["UNDP"]="8a28c155-4f07-42b5-ae59-e480499031dd:e9d86b44-b795-49db-a164-52dd079ea32e"     # ICCUNDP - Production
+    ["UNWOMEN"]="2bcd0744-9e18-487d-85c3-c9a325220be8:9c358701-163d-446b-ae40-41537f2e58f4"  # UNICC
+    ["UNDPBIO"]="8a28c155-4f07-42b5-ae59-e480499031dd:d814ebea-702d-465a-a3db-f1235970409e"  # UNDP - UN Biodiversity Lab Hosting - WP site
+    ["UNCTAD"]="a33def57-39f8-4005-93ed-e80266830257:04ce63c2-cef3-4782-b4cb-d7ebee6f0a6b"   # UNICC OPDA - Shared Bastion
 )
 
 # Server/Bastion Definitions (Tenant:Environment:Bastion:RG:Servers)
@@ -84,9 +77,9 @@ check_fzf() {
 
 generate_tenant_fzf_list() {
     for tenant_name in "${!TENANT_MAP[@]}"; do
-        IFS=':' read -r config_dir tenant_id subscription <<< "${TENANT_MAP[$tenant_name]}"
+        IFS=':' read -r tenant_id subscription <<< "${TENANT_MAP[$tenant_name]}"
 
-        AZURE_CONFIG_DIR="$config_dir" az account get-access-token &>/dev/null
+        az account get-access-token --subscription "$subscription" &>/dev/null
         if [ $? -eq 0 ]; then
             echo -e "\e[32m✔ $tenant_name\e[0m"
         else
@@ -121,21 +114,22 @@ if [ -z "${TENANT_MAP[$tenant_name_raw]+x}" ]; then
 fi
 
 # Retrieve configuration
-IFS=':' read -r AZURE_CONFIG_DIR TENANT_ID SUBSCRIPTION <<< "${TENANT_MAP[$tenant_name_raw]}"
+IFS=':' read -r TENANT_ID SUBSCRIPTION <<< "${TENANT_MAP[$tenant_name_raw]}"
 
 # Configure Azure CLI
-export AZURE_CONFIG_DIR
 az config set extension.use_dynamic_install=yes_without_prompt &>/dev/null
 
 # Login if necessary
-if ! az account get-access-token &>/dev/null; then
+if ! az account get-access-token --subscription "$SUBSCRIPTION" &>/dev/null; then
     echo "--- Logging into $tenant_name_raw ($TENANT_ID) ---"
     az login --tenant "$TENANT_ID" &>> /tmp/azbastion_$USER.log
 fi
 
-# Set Subscription
-az account set --subscription "$SUBSCRIPTION"
-echo "Subscription set to: $SUBSCRIPTION"
+if ! subscription_name=$(az account show --subscription "$SUBSCRIPTION" --query name -o tsv 2>/dev/null); then
+    echo "Error: subscription $SUBSCRIPTION not available for $tenant_name_raw (see /tmp/azbastion_$USER.log)."
+    exit 1
+fi
+echo "Subscription: $subscription_name"
 
 # Check SSH extension
 check_ssh
@@ -191,4 +185,8 @@ SERVER_NAME=$(echo "$selected_server_line" | awk '{$NF=""; print $0}' | xargs) #
 echo -e "\n--- Connecting to $SERVER_NAME ($TARGET_IP) ---"
 echo "Bastion: $bastion, Resource Group: $rg, User: $azuser"
 
-az network bastion ssh -n "$bastion" -g "$rg" --target-ip-address "$TARGET_IP" --auth-type password --username "$azuser"
+# The bastion extension (1.4.3) takes the tunnel token from the default
+# subscription and ignores --subscription: a token from another tenant leaves
+# the connection hanging. The token is only requested when the tunnel opens.
+az account set --subscription "$SUBSCRIPTION"
+az network bastion ssh --subscription "$SUBSCRIPTION" -n "$bastion" -g "$rg" --target-ip-address "$TARGET_IP" --auth-type password --username "$azuser"

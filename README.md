@@ -21,11 +21,11 @@ Interactive tunnel/SSH connection through Azure Bastion, across several tenants.
 
 Flow: pick a **tenant** → pick an **environment** (Production/Test) → pick a **server** → it logs into that tenant (if needed) and opens the connection with `az network bastion ssh`.
 
-Each tenant has its own isolated Azure CLI login, stored in a separate `AZURE_CONFIG_DIR` (`~/.azure_IIIM`, `~/.azure_UNDP`, `~/.azure_UNDPBIO`, `~/.azure_WOMEN`, `~/.azure_UNICC`), so logging into one tenant never affects the others' sessions. The tenant picker shows ✔ (green) for tenants with a currently valid session and ✖ (red) otherwise.
+All tenants share the default Azure CLI profile (`~/.azure`): `az login --tenant` adds each tenant's subscriptions to it, and every `az` call in the script passes `--subscription`. The exception is the tunnel token: the bastion extension takes it from the default subscription, so the script runs `az account set` right before connecting. The token is only requested when the tunnel opens, so sessions already open are not affected. The tenant picker shows ✔ (green) for tenants with a currently valid session and ✖ (red) otherwise.
 
 Tenants/servers are defined in two arrays at the top of the script (`TENANT_MAP`, `AZURE_RESOURCES`) — add or remove a server by editing one line there, no need to touch the rest of the script.
 
-Before first use, edit the `azuser` variable in the script to your own username, and make sure you've run `az login` (or let the script do it) for each `AZURE_CONFIG_DIR` you plan to use.
+Before first use, edit the `azuser` variable in the script to your own username, and make sure you've run `az login --tenant <id>` (or let the script do it) for each tenant you plan to use.
 
 ```
 ./azbastion
